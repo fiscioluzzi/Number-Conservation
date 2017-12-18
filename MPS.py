@@ -358,17 +358,69 @@ class sMPS:
         for s in range(bond_nr-1):
             theta = np.dot(theta, self.G[s][0]+self.G[s][3])
             theta = np.dot(theta, np.diag(self.L[s+1]))
-        #update just the Gammas and the Lambda of the bond bond_nr 
-        return -1
 
-        # TODO: FIX
-        G_left, L_middlet, G_right, Error0 = operate_on_bond(operator, bond_nr, self)
-        L_middle = np.zeros(self.chimax)
-        L_middle[:np.shape(L_middlet)[0]] = L_middlet
-        #L_middle = L_middle[0:self.chimax]
-        theta = np.dot(theta, G_left[0]+G_left[3])
-        theta = np.dot(theta, np.diag(L_middle))
-        theta = np.dot(theta, G_right[0]+G_right[3])
+        #update just the Gammas and the Lambda of the bond bond_nr 
+        chi_left   = self.chi[bond_nr-1]
+        chi_middle = self.chi[bond_nr]
+        chi_right  = self.chi[bond_nr+1]
+        L_left   = self.L[bond_nr-1][:chi_left]
+        G_left   = self.G[bond_nr-1][:, :chi_left, :chi_middle]
+        L_middle = self.L[bond_nr][:chi_middle]
+        G_right  = self.G[bond_nr][:, :chi_middle, :chi_right]
+        L_right  = self.L[bond_nr+1][:chi_right]
+   
+        # Store dimensions for SVD
+        m = min(self.chimax, self.d*chi_left)
+        n = min(self.chimax, self.d*chi_right)
+
+        # Contract matrices to form Theta
+        #(1)->(chi,d,chi)
+        thetat=np.tensordot(np.diag(L_left),G_left,axes=(1,1))
+        #(2)->(chi,d,chi)
+        thetat=np.tensordot(thetat,np.diag(L_middle),axes=(2,0))
+        #(3)->(chi,d,d,chi)
+        thetat=np.tensordot(thetat,G_right,axes=(2,1))
+        #(4)->(chi,d,d,chi)
+        thetat=np.tensordot(thetat,np.diag(L_right),axes=(3,0))
+        #(chi, chi, d, d)
+        # Then contract it with the operator and reshape
+        thetat = np.tensordot(thetat,operator,axes=([1,2],[0,1]));
+        thetat =np.reshape(np.transpose(thetat,(2,0,3,1)),(self.d*chi_left,self.d*chi_right))
+
+        # SVD theta into X, Y and Z
+        if thetat.dtype != np.complex128 :
+            X,Y,Z = svd_dgesvd.svd_dgesvd(thetat, full_matrices = 1,compute_uv = 1)
+        else:
+            X,Y,Z = svd_zgesvd.svd_zgesvd(thetat, full_matrices = 1,compute_uv = 1)
+
+        Z=Z.T
+
+        # Reset MPS matrices
+        G_left_new=np.zeros((self.d, self.chimax, self.chimax), dtype=np.complex128)
+        G_right_new=np.zeros((self.d, self.chimax, self.chimax), dtype=np.complex128)
+
+        # Truncate
+        L_middle_new = Y[0:min(self.chimax, np.shape(Y)[0])]
+
+        #Truncate X tensor and reshape it, then assign to new MPS matrix
+        X=np.reshape(X[:self.d*chi_left, :m],(self.d, chi_left,m))
+        G_left_new[:,:chi_left,:m]=np.transpose(np.tensordot(np.diag(L_left**(-1)),X,axes=(1,1)),(1,0,2))
+        #Truncate Z tensor and reshape it, then assign to new MPS matrix
+
+        Z=np.transpose(np.reshape(Z[:self.d*chi_right,:n] ,(self.d,chi_right,n)),(0,2,1))
+        G_right_new[:,:n,:chi_right]=np.tensordot(Z,np.diag(L_right**(-1)),axes=(2,0));
+
+        # Truncate tensors
+        L_middle_0 = np.zeros(self.chimax)
+        L_middle_0[:self.chi[bond_nr]] = L_middle_new[0:self.chi[bond_nr]]/np.sqrt(sum(L_middle_new[0:self.chi[bond_nr]]**2))
+
+        G_left_0 = G_left_new[:,:,:]
+        G_right_0 = G_right_new[:,:,:]
+
+        theta = np.dot(theta, G_left_0[0]+G_left_0[3])
+        theta = np.dot(theta, np.diag(L_middle_0))
+        theta = np.dot(theta, G_right_0[0]+G_right_0[3])
+
         for s in range(bond_nr+1, self.N):
             theta = np.dot(theta, np.diag(self.L[s]))
             theta = np.dot(theta, self.G[s][0]+self.G[s][3])
