@@ -1,11 +1,12 @@
 #-------------------------------------------------------------------------------
 # Filename: MPS.py
 # Description: Contains all the classes related to Matrix Product States
-# Authors: Mark Fischer & Evert van Nieuwenburg
+# Authors: Mark H Fischer & Evert van Nieuwenburg
 # Copyright (c) 2016 ETH Zurich
 #-------------------------------------------------------------------------------
 from __future__ import division
 import numpy as np
+import svd_dgesvd, svd_zgesvd
 import cPickle
 from scipy import linalg as lg
 
@@ -142,7 +143,7 @@ class MPS:
         B=np.tensordot(B,np.diag(self.L[bond_nr]),axes=(2,0))
         B=np.tensordot(B,self.G[bond_nr],axes=(2,1))
         B=np.tensordot(B,np.diag(self.L[bond_nr+1]),axes=(3,0))
-        C = np.tensordot(B,np.reshape(operator[bond_nr-1], (self.d, self.d, self.d, self.d)),axes=([1,2],[0,1]));
+        C = np.tensordot(B,np.reshape(operator, (self.d, self.d, self.d, self.d)),axes=([1,2],[0,1]));
         XOp = np.tensordot(C, np.conj(B), axes=([0,2,3,1], [0,1,2,3]))
         return XOp
 
@@ -358,8 +359,10 @@ class sMPS:
         for s in range(bond_nr-1):
             theta = np.dot(theta, self.G[s][0]+self.G[s][3])
             theta = np.dot(theta, np.diag(self.L[s+1]))
-
         #update just the Gammas and the Lambda of the bond bond_nr 
+#        return -1
+
+        # We should truncate all the matrices to reduce overhead
         chi_left   = self.chi[bond_nr-1]
         chi_middle = self.chi[bond_nr]
         chi_right  = self.chi[bond_nr+1]
@@ -401,6 +404,7 @@ class sMPS:
 
         # Truncate
         L_middle_new = Y[0:min(self.chimax, np.shape(Y)[0])]
+        chi_tmp = np.min([self.chimax,L_middle_new.shape[0]])
 
         #Truncate X tensor and reshape it, then assign to new MPS matrix
         X=np.reshape(X[:self.d*chi_left, :m],(self.d, chi_left,m))
@@ -412,7 +416,7 @@ class sMPS:
 
         # Truncate tensors
         L_middle_0 = np.zeros(self.chimax)
-        L_middle_0[:self.chi[bond_nr]] = L_middle_new[0:self.chi[bond_nr]]/np.sqrt(sum(L_middle_new[0:self.chi[bond_nr]]**2))
+        L_middle_0[:chi_tmp] = L_middle_new[0:chi_tmp]#/np.sqrt(sum(L_middle_new[0:chi_tmp]**2))
 
         G_left_0 = G_left_new[:,:,:]
         G_right_0 = G_right_new[:,:,:]
